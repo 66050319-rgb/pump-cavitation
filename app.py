@@ -119,7 +119,7 @@ prediction = model.predict(input_features)[0]
 proba = model.predict_proba(input_features).max() * 100
 
 # อัปเดตข้อมูลลง DataFrame (สำหรับพล็อตกราฟ 50 จุดล่าสุด)
-now_str = pd.Timestamp.now().strftime("%H:%M:%S")
+now_str = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%H:%M:%S")
 new_row = pd.DataFrame(
     [{"timestamp": now_str, "x": curr_x, "y": curr_y, "z": curr_z}]
 )
@@ -129,7 +129,7 @@ st.session_state.sensor_data = pd.concat(
 
 # [เพิ่มที่ 2] บันทึกข้อมูลเข้า Session History เพื่อรอ Export CSV
 st.session_state.vibration_history.append({
-    "Timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+    "Timestamp": pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S"),
     "X_axis": curr_x,
     "Y_axis": curr_y,
     "Z_axis": curr_z,
@@ -202,7 +202,7 @@ if len(st.session_state.vibration_history) > 0:
   st.sidebar.download_button(
       label="⬇️ Download CSV Log",
       data=csv_data,
-      file_name=f'pump_vibration_{pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")}.csv',
+      file_name=f'pump_vibration_{pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y%m%d_%H%M%S")}.csv',
       mime="text/csv",
   )
   st.sidebar.caption(f"บันทึกแล้วทั้งหมด: {len(df_history)} แถว")
