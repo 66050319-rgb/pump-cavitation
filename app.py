@@ -149,6 +149,44 @@ def generate_phyphox_qr():
   img.save(buf, format="PNG")
   return buf.getvalue()
 
+# ---------------------------------------------------------
+# 5. ฟังก์ชันสร้าง QR Code สำหรับแอป phyphox
+# ---------------------------------------------------------
+def generate_phyphox_qr():
+  # ใช้โครงสร้าง phyphox:// ที่กำหนด Broker และ Topic ให้แอปโหลดได้ทันที
+  phyphox_url = (
+      f"phyphox://broker.hivemq.com/pump/vibration/data"
+      "?x=acc_x&y=acc_y&z=acc_z"
+  )
+
+  qr = qrcode.QRCode(version=1, box_size=6, border=2)
+  qr.add_data(phyphox_url)
+  qr.make(fit=True)
+  img = qr.make_image(fill_color="black", back_color="white")
+
+  buf = BytesIO()
+  img.save(buf, format="PNG")
+  return buf.getvalue()
+
+
+# ---------------------------------------------------------
+# 6. ส่วน Sidebar คำแนะนำการเชื่อมต่อ
+# ---------------------------------------------------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("📱 เชื่อมต่อสมาร์ทโฟน (phyphox)")
+
+with st.sidebar.expander("📲 วิธีตั้งค่าการส่งค่าความสั่นสะเทือน"):
+  st.markdown("""
+    **วิธีที่ 1: ตั้งค่าผ่านแอป phyphox (แนะนำ)**
+    1. เปิดแอป **phyphox** บนสมาร์ทโฟน
+    2. เข้าเมนู **Acceleration (without g)** หรือ **Acceleration with g**
+    3. กดจุด 3 จุดมุมขวาบน $\rightarrow$ เลือก **Network connection** หรือ **MQTT**
+    4. ตั้งค่าตามนี้:
+       * **Server/Broker:** `broker.hivemq.com`
+       * **Port:** `1883`
+       * **Topic:** `pump/vibration/data`
+    5. กด **Play (▶)** เพื่อเริ่มส่งค่า Real-Time เข้าหน้าเว็บ
+    """)
 
 # ---------------------------------------------------------
 # 6. ส่วนควบคุมหน้าจอ (Sidebar Controls)
