@@ -1,5 +1,8 @@
 streamlit
 paho-mqtt
+numpy
 pandas
 plotly
 scikit-learn
+qrcode
+pillow
