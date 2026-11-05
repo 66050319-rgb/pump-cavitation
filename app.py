@@ -143,6 +143,32 @@ if uploaded_file is not None:
 
       display_log_df = pd.DataFrame(csv_log)
 
+      # ---------------------------------------------------------
+      # คำนวณ Precision จริงจากไฟล์ CSV (ถ้ามีคอลัมน์เฉลย/Label อยู่ในไฟล์)
+      # ---------------------------------------------------------
+      label_col = [
+          c
+          for c in df_phyphox.columns
+          if c.lower() in ["label", "status", "target", "class", "actual"]
+      ]
+
+      if label_col:
+        y_true = df_phyphox[label_col[0]]
+        y_rf_all = display_log_df["RF Prediction"]
+        y_svm_all = display_log_df["SVM Prediction"]
+
+        current_rf_precision = precision_score(
+            y_true, y_rf_all, average="weighted", zero_division=0
+        )
+        current_svm_precision = precision_score(
+            y_true, y_svm_all, average="weighted", zero_division=0
+        )
+        precision_title = "Precision จริงจากไฟล์นี้"
+      else:
+        current_rf_precision = rf_precision
+        current_svm_precision = svm_precision
+        precision_title = "Model Precision (อ้างอิง)"
+
       # แสดงค่าของแถวล่าสุด
       st.markdown("### 📍 ค่าการสั่นสะเทือน (จากไฟล์ CSV แถวล่าสุด)")
       m1, m2, m3, m4 = st.columns(4)
@@ -168,15 +194,16 @@ if uploaded_file is not None:
         st.subheader(f"🌲 ปั๊มทำงานที่สภาวะ: {rf_pred}")
         st.caption(f"ความมั่นใจ: **{rf_proba:.1f}%**")
         st.success(
-            f"ตัววิธี Random Forest ค่า precision เท่ากับ: **{rf_precision:.2f}**"
+            f"ตัววิธี Random Forest {precision_title} เท่ากับ:"
+            f" **{current_rf_precision:.2f}**"
         )
 
       with col_svm:
         st.subheader(f"⚡ ปั๊มทำงานที่สภาวะ: {svm_pred}")
         st.caption(f"ความมั่นใจ: **{svm_proba:.1f}%**")
         st.info(
-            "ตัววิธี Support Vector Machine ค่า precision เท่ากับ:"
-            f" **{svm_precision:.2f}**"
+            f"ตัววิธี Support Vector Machine {precision_title} เท่ากับ:"
+            f" **{current_svm_precision:.2f}**"
         )
 
       # กราฟแสดงแนวโน้มความสั่นสะเทือน
