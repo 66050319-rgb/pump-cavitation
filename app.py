@@ -98,4 +98,27 @@ def start_mqtt():
   client = mqtt.Client()
   client.on_message = on_message
   try:
-    client.connect(MQTT_BROKER, MQTT_PORT,
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.subscribe(MQTT_TOPIC)
+    client.loop_start()
+  except Exception as e:
+    st.error(f"ไม่สามารถเชื่อมต่อ MQTT Broker ได้: {e}")
+  return client
+
+
+mqtt_client = start_mqtt()
+
+# ---------------------------------------------------------
+# 5. ฟังก์ชันสร้างไฟล์คอนฟิก phyphox XML
+# ---------------------------------------------------------
+PHYPHOX_XML = f"""<?xml version="1.0" encoding="utf-8"?>
+<phyphox version="1.7">
+    <title>Pump Cavitation Monitor</title>
+    <category>IoT Dashboard</category>
+    <data-containers>
+        <container size="1">x</container>
+        <container size="1">y</container>
+        <container size="1">z</container>
+    </data-containers>
+    <input>
+        <sensor type="acceler
