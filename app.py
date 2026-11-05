@@ -1,11 +1,9 @@
 import json
 import time
-from io import BytesIO
 import numpy as np
 import paho.mqtt.client as mqtt
 import pandas as pd
 import plotly.graph_objects as go
-import qrcode
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score
 from sklearn.model_selection import train_test_split
@@ -147,4 +145,45 @@ auto_refresh = st.sidebar.checkbox(
 )
 refresh_interval = st.sidebar.slider("ความถี่ในการรีเฟรช (วินาที)", 0.5, 3.0, 1.0)
 
-st.sidebar.markdown("---
+st.sidebar.markdown("---")
+st.sidebar.subheader("📱 เชื่อมต่อ phyphox (iOS / Android)")
+st.sidebar.download_button(
+    label="📥 ดาวน์โหลดไฟล์คอนฟิก Pump_IoT.phyphox",
+    data=PHYPHOX_XML,
+    file_name="Pump_IoT.phyphox",
+    mime="application/xml",
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📁 อัปโหลดไฟล์ประวัติจาก phyphox")
+uploaded_file = st.sidebar.file_uploader(
+    "เลือกไฟล์ CSV ที่บันทึกจาก phyphox", type=["csv"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 ข้อมูลสถานะการเชื่อมต่อ")
+st.sidebar.info(f"**Broker:** {MQTT_BROKER}\n\n**Topic:** {MQTT_TOPIC}")
+
+# ---------------------------------------------------------
+# 7. ประมวลผลข้อมูลปัจจุบัน และเก็บบันทึก
+# ---------------------------------------------------------
+curr_x = st.session_state.latest_sensor["x"]
+curr_y = st.session_state.latest_sensor["y"]
+curr_z = st.session_state.latest_sensor["z"]
+abs_accel = np.sqrt(curr_x**2 + curr_y**2 + curr_z**2)
+
+now_time_str = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%H:%M:%S")
+now_full_time = pd.Timestamp.now(tz="Asia/Bangkok").strftime(
+    "%Y-%m-%d %H:%M:%S"
+)
+
+# บันทึกข้อมูลลง History สำหรับทำกราฟ
+new_row = pd.DataFrame(
+    [{"Timestamp": now_time_str, "X": curr_x, "Y": curr_y, "Z": curr_z}]
+)
+st.session_state.history_df = pd.concat(
+    [st.session_state.history_df, new_row], ignore_index=True
+).tail(50)
+
+# ทำนายสภาวะด้วยโมเดล ML ทั้งสองแบบ
+input_features = np
