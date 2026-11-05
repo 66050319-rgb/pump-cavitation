@@ -22,7 +22,7 @@ st.set_page_config(
 st.title("⚙️ Prediction of Cavitation in Centrifugal Pump ⚙️")
 st.caption(
     "ระบบตรวจจับและทำนายการเกิดโพรงอากาศในปั๊มน้ำด้วย IoT และ Machine"
-    " Learning (Real-Time)"
+    " Learning"
 )
 
 
@@ -76,7 +76,7 @@ if "data_history" not in st.session_state:
   st.session_state.data_history = []
 
 # ---------------------------------------------------------
-# 4. ตั้งค่า MQTT Client (รับค่า Real-Time จากสมาร์ทโฟน/phyphox)
+# 4. ตั้งค่า MQTT Client (รับค่า Real-Time)
 # ---------------------------------------------------------
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
@@ -160,32 +160,102 @@ uploaded_file = st.sidebar.file_uploader(
     "เลือกไฟล์ CSV ที่บันทึกจาก phyphox", type=["csv"]
 )
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 ข้อมูลสถานะการเชื่อมต่อ")
-st.sidebar.info(f"**Broker:** {MQTT_BROKER}\n\n**Topic:** {MQTT_TOPIC}")
+# ---------------------------------------------------------
+# 7. ตรวจสอบแหล่งข้อมูล (CSV vs Real-Time MQTT)
+# ---------------------------------------------------------
+using_csv = False
+
+if uploaded_file is not None:
+  try:
+    df_phyphox = pd.read_csv(uploaded_file)
+    numeric_cols = df_phyphox.select_dtypes(include=[np.number]).columns
+    feature_cols = [
+        col for col in numeric_cols if "time" not in col.lower()
+    ][:3]
+
+    if len(feature_cols) >= 3:
+      using_csv = True
+      st.sidebar.success("📂 กำลังวิเคราะห์ข้อมูลจากไฟล์ CSV")
+
+      # ดึงคอลัมน์ X, Y, Z จาก CSV
+      X_batch = df_phyphox[feature_cols].values
+
+      # กำหนดให้ค่าปัจจุบันดึงมาจากแถวล่าสุดของ CSV
+      last_row = X_batch[-1]
+      curr_x, curr_y, curr_z = float(last_row[0]), float(last_row[1]), float(last_row[2])
+
+      # สร้าง Data Log ประวัติทั้งหมดจากไฟล์ CSV
+      csv_log = []
+      for idx, row in enumerate(X_batch):
+        x_val, y_val, z_val = float(row[0]), float(row[1]), float(row[2])
+        mag_val = np.sqrt(x_val**2 + y_val**2 + z_val**2)
+        feat = np.array([[x_val, y_val, z_val]])
+
+        rf_p = rf_model.predict(feat)[0]
+        rf_c = rf_model.predict_proba(feat).max() * 100
+
+        svm_p = svm_model.predict(feat)[0]
+        svm_c = svm_model.predict_proba(feat).max() * 100
+
+        # ใช้คอลัมน์ Time จาก CSV หรือสร้าง Timestamp ปลอม
+        t_stamp = (
+            df_phyphox.iloc[idx, 0]
+            if "time" in str(df_phyphox.columns[0]).lower()
+            else f"Row {idx+1}"
+        )
+
+        csv_log.append({
+            "Timestamp": t_stamp,
+            "Acceleration X (m/s²)": round(x_val, 4),
+            "Acceleration Y (m/s²)": round(y_val, 4),
+            "Acceleration Z (m/s²)": round(z_val, 4),
+            "Absolute Accel (m/s²)": round(mag_val, 4),
+            "RF Prediction": rf_p,
+            "RF Conf (%)": round(rf_c, 1),
+            "SVM Prediction": svm_p,
+            "SVM Conf (%)": round(svm_c, 1),
+        })
+
+      # อัปเดตตาราง Log ให้แสดงข้อมูลทั้งหมดจาก CSV
+      display_log_df = pd.DataFrame(csv_log)
+
+      # อัปเดตกราฟประวัติ
+      chart_df = pd.DataFrame({
+          "Timestamp": [item["Timestamp"] for item in csv_log],
+          "X": [item["Acceleration X (m/s²)"] for item in csv_log],
+          "Y": [item["Acceleration Y (m/s²)"] for item in csv_log],
+          "Z": [item["Acceleration Z (m/s²)"] for item in csv_log],
+      }).tail(50)
+
+    else:
+      st.sidebar.error("ไฟล์ CSV ไม่มีคอลัมน์ X, Y, Z ตัวเลขที่ถูกต้อง")
+  except Exception as e:
+    st.sidebar.error(f"อ่านไฟล์ CSV ไม่สำเร็จ: {e}")
+
+if not using_csv:
+  # ใช้ค่า Real-Time จาก MQTT สด
+  curr_x = st.session_state.latest_sensor["x"]
+  curr_y = st.session_state.latest_sensor["y"]
+  curr_z = st.session_state.latest_sensor["z"]
+
+  now_time_str = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%H:%M:%S")
+  now_full_time = pd.Timestamp.now(tz="Asia/Bangkok").strftime(
+      "%Y-%m-%d %H:%M:%S"
+  )
+
+  # บันทึกข้อมูล Real-time ลง session state
+  new_row = pd.DataFrame(
+      [{"Timestamp": now_time_str, "X": curr_x, "Y": curr_y, "Z": curr_z}]
+  )
+  st.session_state.history_df = pd.concat(
+      [st.session_state.history_df, new_row], ignore_index=True
+  ).tail(50)
+  chart_df = st.session_state.history_df
 
 # ---------------------------------------------------------
-# 7. ประมวลผลข้อมูลปัจจุบัน และเก็บบันทึก
+# 8. คำนวณผลการทำนายด้วย ML โมเดล
 # ---------------------------------------------------------
-curr_x = st.session_state.latest_sensor["x"]
-curr_y = st.session_state.latest_sensor["y"]
-curr_z = st.session_state.latest_sensor["z"]
 abs_accel = np.sqrt(curr_x**2 + curr_y**2 + curr_z**2)
-
-now_time_str = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%H:%M:%S")
-now_full_time = pd.Timestamp.now(tz="Asia/Bangkok").strftime(
-    "%Y-%m-%d %H:%M:%S"
-)
-
-# บันทึกข้อมูลลง History สำหรับทำกราฟ
-new_row = pd.DataFrame(
-    [{"Timestamp": now_time_str, "X": curr_x, "Y": curr_y, "Z": curr_z}]
-)
-st.session_state.history_df = pd.concat(
-    [st.session_state.history_df, new_row], ignore_index=True
-).tail(50)
-
-# ทำนายสภาวะด้วยโมเดล ML ทั้งสองแบบ
 input_features = np.array([[curr_x, curr_y, curr_z]])
 
 rf_pred = rf_model.predict(input_features)[0]
@@ -194,118 +264,33 @@ rf_proba = rf_model.predict_proba(input_features).max() * 100
 svm_pred = svm_model.predict(input_features)[0]
 svm_proba = svm_model.predict_proba(input_features).max() * 100
 
-# บันทึกลงตาราง Data Log สำหรับดาวน์โหลด CSV
-log_entry = {
-    "Timestamp": now_full_time,
-    "Acceleration X (m/s²)": curr_x,
-    "Acceleration Y (m/s²)": curr_y,
-    "Acceleration Z (m/s²)": curr_z,
-    "Absolute Accel (m/s²)": round(abs_accel, 4),
-    "RF Prediction": rf_pred,
-    "RF Conf (%)": round(rf_proba, 1),
-    "SVM Prediction": svm_pred,
-    "SVM Conf (%)": round(svm_proba, 1),
-}
-st.session_state.data_history.append(log_entry)
+if not using_csv:
+  log_entry = {
+      "Timestamp": now_full_time,
+      "Acceleration X (m/s²)": curr_x,
+      "Acceleration Y (m/s²)": curr_y,
+      "Acceleration Z (m/s²)": curr_z,
+      "Absolute Accel (m/s²)": round(abs_accel, 4),
+      "RF Prediction": rf_pred,
+      "RF Conf (%)": round(rf_proba, 1),
+      "SVM Prediction": svm_pred,
+      "SVM Conf (%)": round(svm_proba, 1),
+  }
+  st.session_state.data_history.append(log_entry)
+  display_log_df = pd.DataFrame(st.session_state.data_history)
 
 # ---------------------------------------------------------
-# 8. แสดงผลข้อมูลบน Main Dashboard
+# 9. แสดงผลบน Main Dashboard
 # ---------------------------------------------------------
-# 8.1 ส่วนอัปโหลดและประมวลผลไฟล์ CSV ย้อนหลังจาก phyphox
-if uploaded_file is not None:
-  st.markdown("### 📂 ผลการวิเคราะห์ไฟล์ CSV ย้อนหลังจาก phyphox")
-  try:
-    df_phyphox = pd.read_csv(uploaded_file)
-
-    # ค้นหาคอลัมน์ที่เป็นตัวเลขและข้ามคอลัมน์เวลา
-    numeric_cols = df_phyphox.select_dtypes(include=[np.number]).columns
-    feature_cols = [
-        col for col in numeric_cols if "time" not in col.lower()
-    ][:3]
-
-    if len(feature_cols) >= 3:
-      st.info(f"📌 คอลัมน์ที่ใช้วิเคราะห์: `{', '.join(feature_cols)}`")
-
-      # ดึงข้อมูล X, Y, Z
-      X_batch = df_phyphox[feature_cols].values
-
-      # ทำนายผลด้วย RF และ SVM
-      df_phyphox["Absolute Accel (m/s²)"] = np.round(
-          np.linalg.norm(X_batch, axis=1), 4
-      )
-      df_phyphox["RF Prediction"] = rf_model.predict(X_batch)
-      df_phyphox["SVM Prediction"] = svm_model.predict(X_batch)
-
-      st.success(
-          f"✅ ประมวลผลข้อมูลสำเร็จทั้งหมด {len(df_phyphox)} รายการ!"
-      )
-
-      # แสดงตารางผลลัพธ์
-      st.dataframe(df_phyphox, use_container_width=True)
-
-      # ปุ่มดาวน์โหลดผลการวิเคราะห์เป็น CSV
-      processed_csv = df_phyphox.to_csv(index=False).encode("utf-8")
-      st.download_button(
-          label="📥 ดาวน์โหลดผลการทำนาย (Processed CSV)",
-          data=processed_csv,
-          file_name="phyphox_predicted_result.csv",
-          mime="text/csv",
-      )
-    else:
-      st.warning(
-          "⚠️ ไม่พบคอลัมน์ตัวเลข 3 แกน (X, Y, Z) ในไฟล์"
-          " กรุณาตรวจสอบไฟล์ CSV จาก phyphox"
-      )
-
-  except Exception as e:
-    st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ CSV: {e}")
-
-  st.markdown("---")
-
-# 8.2 แสดงค่าแรงสั่นสะเทือนปัจจุบัน
-st.markdown("### 📍 ค่าการสั่นสะเทือนปัจจุบัน (Real-Time)")
+# 9.1 ค่าแรงสั่นสะเทือนปัจจุบัน
+st.markdown("### 📍 ค่าการสั่นสะเทือน (ปัจจุบัน/จาก CSV)")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("ค่าการสั่นแนวแกน X (m/s²)", f"{curr_x:.2f}")
 m2.metric("ค่าการสั่นแนวแกน Y (m/s²)", f"{curr_y:.2f}")
 m3.metric("ค่าการสั่นแนวแกน Z (m/s²)", f"{curr_z:.2f}")
 m4.metric("Absolute Accel (m/s²)", f"{abs_accel:.2f}")
 
-# 8.3 กราฟเส้น Real-Time (Plotly)
-fig = go.Figure()
-fig.add_trace(
-    go.Scatter(
-        x=st.session_state.history_df["Timestamp"],
-        y=st.session_state.history_df["X"],
-        mode="lines+markers",
-        name="แกน X",
-    )
-)
-fig.add_trace(
-    go.Scatter(
-        x=st.session_state.history_df["Timestamp"],
-        y=st.session_state.history_df["Y"],
-        mode="lines+markers",
-        name="แกน Y",
-    )
-)
-fig.add_trace(
-    go.Scatter(
-        x=st.session_state.history_df["Timestamp"],
-        y=st.session_state.history_df["Z"],
-        mode="lines+markers",
-        name="แกน Z",
-    )
-)
-fig.update_layout(
-    title="📈 กราฟแสดงแนวโน้มความสั่นสะเทือน Real-Time",
-    xaxis_title="เวลา",
-    yaxis_title="ความเร่งสั่นสะเทือน (m/s²)",
-    height=350,
-    margin=dict(l=20, r=20, t=40, b=20),
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# 8.4 ผลการวิเคราะห์และทำนายสภาวะ (เปรียบเทียบ RF vs SVM)
+# 9.2 ผลการทำนายสภาวะ Cavitation (RF & SVM)
 st.markdown("---")
 st.markdown("### 🤖 ผลการทำนายสภาวะการเกิด Cavitation")
 
@@ -326,16 +311,51 @@ with col_svm:
       f" **{svm_precision:.2f}**"
   )
 
-# 8.5 ตาราง Data Log และการส่งออก CSV
+# 9.3 กราฟเส้นแสดงแนวโน้มความสั่นสะเทือน
+st.markdown("---")
+fig = go.Figure()
+fig.add_trace(
+    go.Scatter(
+        x=chart_df["Timestamp"],
+        y=chart_df["X"],
+        mode="lines+markers",
+        name="แกน X",
+    )
+)
+fig.add_trace(
+    go.Scatter(
+        x=chart_df["Timestamp"],
+        y=chart_df["Y"],
+        mode="lines+markers",
+        name="แกน Y",
+    )
+)
+fig.add_trace(
+    go.Scatter(
+        x=chart_df["Timestamp"],
+        y=chart_df["Z"],
+        mode="lines+markers",
+        name="แกน Z",
+    )
+)
+fig.update_layout(
+    title="📈 กราฟแสดงแนวโน้มความสั่นสะเทือน",
+    xaxis_title="เวลา / ลำดับข้อมูล",
+    yaxis_title="ความเร่งสั่นสะเทือน (m/s²)",
+    height=350,
+    margin=dict(l=20, r=20, t=40, b=20),
+)
+st.plotly_chart(fig, use_container_width=True)
+
+# 9.4 ตารางบันทึกประวัติการสั่นสะเทือน (Live Log / CSV Log)
 st.markdown("---")
 st.markdown("### 📋 ตารางบันทึกประวัติการสั่นสะเทือนสด (Live Log)")
-if st.session_state.data_history:
-  log_df = pd.DataFrame(st.session_state.data_history)
-  st.dataframe(log_df.tail(10), use_container_width=True)
+if not display_log_df.empty:
+  st.dataframe(display_log_df.tail(10), use_container_width=True)
 
-  csv_data = log_df.to_csv(index=False).encode("utf-8")
+  csv_data = display_log_df.to_csv(index=False).encode("utf-8")
   file_name = (
-      "pump_vibration_log_"
+      "pump_vibration_predicted_log_"
       f'{pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y%m%d_%H%M%S")}.csv'
   )
 
@@ -347,8 +367,8 @@ if st.session_state.data_history:
   )
 
 # ---------------------------------------------------------
-# 9. คำสั่ง Auto Refresh
+# 10. คำสั่ง Auto Refresh (ทำงานเฉพาะเมื่อไม่ได้ใช้ CSV)
 # ---------------------------------------------------------
-if auto_refresh:
+if auto_refresh and not using_csv:
   time.sleep(refresh_interval)
   st.rerun()
